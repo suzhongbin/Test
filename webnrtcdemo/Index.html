@@ -1,0 +1,388 @@
+﻿
+@{
+    Layout = null;
+}
+
+<!DOCTYPE html>
+
+<html>
+<head>
+    <meta name="viewport" content="width=device-width" />
+    <title>Index1</title>
+</head>
+<body>
+   
+    <div>
+        <div id="container" style="width:320px;height:180px;background-color:gray;float:left;">
+            自己视频画面
+        </div>
+
+        <div id="remoteContainer" style="width:320px;height:180px;background-color:aqua;float:left;">
+            对方视频画面
+        </div>
+    </div>
+
+    <div style="clear: both;">
+        当前连接状态：<span id="currentConnectionStatus">...</span>
+    </div>
+
+    <div style="margin-top:100px;">
+        <button id="btnZhuJiaoSendRequire" onclick="ZhuJiaoSendRequire()">
+            主叫发起通话请求
+        </button>
+        <button onclick="AudioVideoConnect()">
+            音视频连接
+        </button>
+    </div> 
+
+    <script src="jquery-1.11.3.min.js"></script>
+    <script src="NIM_Web_NIM_v5.2.1.js"></script>
+    <script src="NIM_Web_Netcall_v5.2.1.js"></script>
+    <script src="NIM_Web_WebRTC_v5.2.1.js"></script>
+
+    <script type="text/javascript">
+
+        //******************************初始化SDK-START*****************************************************************
+        var data = {};
+        // 注意这里, 引入的 SDK 文件不一样的话, 你可能需要使用 SDK.NIM.getInstance 来调用接口
+        var nim = NIM.getInstance({
+            debug: true,
+            appKey: '491b30f915ab2c1fcd78fb31d4efbf0e',
+            account: 'helloworld',
+            token: 'cb83212563f6f756170bcc96d692c25c',
+            // privateConf: {}, // 私有化部署方案所需的配置
+            onconnect: onConnect,
+            onwillreconnect: onWillReconnect,
+            ondisconnect: onDisconnect,
+            onerror: onError
+        });
+        function onConnect() {
+            console.log('连接成功');
+            $('#currentConnectionStatus').text('已连接');
+        }
+        function onWillReconnect(obj) {
+            // 此时说明 SDK 已经断开连接, 请开发者在界面上提示用户连接已断开, 而且正在重新建立连接
+            console.log('即将重连');
+            console.log(obj.retryCount);
+            console.log(obj.duration);
+        }
+        function onDisconnect(error) {
+            // 此时说明 SDK 处于断开状态, 开发者此时应该根据错误码提示相应的错误信息, 并且跳转到登录页面
+            console.log('丢失连接');
+            console.log(error);
+            if (error) {
+                switch (error.code) {
+                    // 账号或者密码错误, 请跳转到登录页面并提示错误
+                    case 302:
+                        $('#currentConnectionStatus').text('丢失连接-账号或者密码错误');
+                        break;
+                        // 重复登录, 已经在其它端登录了, 请跳转到登录页面并提示错误
+                    case 417:
+                        $('#currentConnectionStatus').text('丢失连接-重复登录, 已经在其它端登录了');
+                        break;
+                        // 被踢, 请提示错误后跳转到登录页面
+                    case 'kicked':
+                        $('#currentConnectionStatus').text('丢失连接-被踢了');
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+        function onError(error) {
+            console.log(error);
+        }
+        //******************************初始化SDK-END*****************************************************************
+
+
+        NIM.use(WebRTC)
+
+        //************************************************初始化音视频(WebRTC)-START************************************************
+        // SDK重命名
+        const Netcall = WebRTC;
+        const netcall = Netcall.getInstance({
+            nim: nim,
+            container: document.getElementById('container'),
+            remoteContainer: document.getElementById('remoteContainer'),
+            chromeId: '',
+            // 是否开启日志打印
+            debug: true
+        });
+       
+
+        //************************************************初始化音视频(WebRTC)-END************************************************
+
+        // 初始化过程中会通过 devices 事件回传所有的设备列表
+        netcall.on('devices', function (obj) {
+            console.log('on devices', obj)
+        })
+
+      
+
+
+        //***********************************************初始化注册事件监听-START***********************************************
+
+        ////被叫收到呼叫的通知
+        // 是否被叫中
+        let beCalling = false;
+        // 呼叫类型
+        let type = null;
+        // 被叫信息
+        let beCalledInfo = null;
+        // 是否正忙
+        let busy = false;
+        // 开启监听
+        netcall.on('beCalling', function (obj) {
+            console.log('on beCalling', obj);
+            const channelId = obj.channelId;
+            // 被叫回应主叫自己已经收到了通话请求
+            netcall.control({
+                channelId,
+                    command: Netcall.NETCALL_CONTROL_COMMAND_START_NOTIFY_RECEIVED
+                });
+              // 只有在没有通话并且没有被叫的时候才记录被叫信息, 否则通知对方忙并拒绝通话
+              if (!netcall.calling && !beCalling) {
+                type = obj.type;
+                beCalling = true;
+                beCalledInfo = obj;
+                } else {
+                if (netcall.calling) {
+                  busy = netcall.notCurrentChannelId(obj);
+                } else if (beCalling) {
+                  busy = beCalledInfo.channelId !== channelId;
+                }
+                if (busy) {
+                  netcall.control({
+                      channelId,
+                          command: Netcall.NETCALL_CONTROL_COMMAND_BUSY
+                      });
+                      // 拒绝通话
+                      netcall.response({
+                          accepted: false,
+                          beCalledInfo: obj
+                      });
+                      }
+                      }
+                      });
+
+
+          ////主叫收到被叫接受的通知
+          //******主叫收到被叫响应回调-START*******
+          // 被叫拒绝的通知
+          netcall.on('callRejected', function (obj) {
+              console.log('on callRejected', obj);
+              // 取消呼叫倒计时
+              clearCallTimer();
+              // 挂断
+              hangup();
+              // 做清理工作
+              resetWhenHangup();
+                      });
+
+          // 被叫接受的通知
+          netcall.on('callAccepted', function (obj) {
+              console.log('on callAccepted', obj);
+              // 缓存呼叫类型，后面开启音视频连接需要用到
+              type = obj.type;
+              console.log('on callAccepted', obj);
+              // 取消呼叫倒计时
+              clearCallTimer();
+              // 可以开启音视频连接操作。。。
+          });
+        //******主叫收到被叫响应回调-END*******
+
+        //****音视频连接（WebRTC）-START*****
+        function AudioVideoConnect() {
+            const promise = Promise.resolve()
+            promise.then(function () {
+                // 开启麦克风
+                return netcall.startDevice({
+                    type: Netcall.DEVICE_TYPE_AUDIO_IN
+                }).catch(function (err) {
+                    console.log('启动麦克风失败')
+                    console.error(err)
+                })
+            })
+       .then(function () {
+           // 设置采集音量
+           netcall.setCaptureVolume(255)
+           // 开启摄像头
+           return netcall.startDevice({
+               type: Netcall.DEVICE_TYPE_VIDEO,
+               width: 640,
+               height: 480
+           })
+           .catch(function (err) {
+               console.log('启动摄像头失败')
+               console.error(err)
+           })
+       })
+       .then(function () {
+           // 设置本地预览画面大小
+           netcall.setVideoViewSize({
+               width: 500,
+               height: 500,
+               cut: true
+           })
+       })
+       .then(function () {
+           // 开启RTC连接
+           console.log("开始webrtc")
+           netcall.startRtc()
+       })
+       .then(function () {
+           console.log("webrtc连接成功")
+       })
+       .catch(function (err) {
+           console.log('发生错误, 挂断通话')
+           console.log(err)
+           netcall.hangup()
+       })
+        }
+
+
+        // 在回调里监听对方加入通话，并显示对方的视频画面
+        netcall.on('remoteTrack', function (obj) {
+            console.log('user join', obj)
+            // 播放对方声音
+            netcall.startDevice({
+                type: Netcall.DEVICE_TYPE_AUDIO_OUT_CHAT
+            }).catch(function (err) {
+                console.log('播放对方的声音失败')
+                console.error(err)
+            })
+            // 预览对方视频画面
+            netcall.startRemoteStream({
+                account: obj.account,
+                node: document.getElementById('remoteContainer')
+            })
+            // 设置对方预览画面大小
+            netcall.setVideoViewRemoteSize({
+                account: 'testAccount',
+                width: 500,
+                height: 500,
+                cut: true
+            })
+        })
+
+        //****音视频连接（WebRTC）-END*****
+
+
+        ////通话中收到远端的控制指令
+        netcall.on('control', function (obj) {
+            console.log('收到指令', obj);
+        });
+
+        ////收到挂断通知
+        netcall.on('hangup', function (obj) {
+            console.log('on hangup', obj);
+            // 判断需要挂断的通话是否是当前正在进行中的通话
+            if (!beCalledInfo || beCalledInfo.channelId === obj.channelId) {
+                // 清理工作
+                resetWhenHangup();
+            }
+        });
+
+        ////其他端已处理的通知
+        netcall.on('callerAckSync', function (obj) {
+            console.log('其他端已经做了处理', obj);
+        });
+
+
+
+        //***********************************************初始注册事件监听-END***********************************************
+
+
+        //***********************************主叫发起通话请求-START************************************************
+        const pushConfig = {
+            enable: true,
+            needBadge: true,
+            needPushNick: true,
+            pushContent: '',
+            custom: '测试自定义数据',
+            pushPayload: '',
+            sound: '',
+            forceKeepCalling: 0
+        };
+        const sessionConfig = {
+            videoQuality: Netcall.CHAT_VIDEO_QUALITY_HIGH,
+            videoFrameRate: Netcall.CHAT_VIDEO_FRAME_RATE_15,
+            videoBitrate: 0,
+            recordVideo: false,
+            recordAudio: false,
+            highAudio: false,
+            bypassRtmp: false,
+            rtmpUrl: '',
+            rtmpRecord: false,
+            splitMode: Netcall.LAYOUT_SPLITLATTICETILE
+        };
+
+        //主叫发起通话请求
+        function ZhuJiaoSendRequire() {
+            netcall
+          .call({
+              type: Netcall.NETCALL_TYPE_VIDEO,
+              account: '13152509941',
+              pushConfig: pushConfig,
+              sessionConfig: sessionConfig,
+              webrtcEnable: true
+          })
+          .then(function (obj) {
+              // 成功发起呼叫
+              console.log('call success', obj);
+          })
+          .catch(function (err) {
+              // 被叫不在线
+              if (err.code === 11001) {
+                  console.log('callee offline', err);
+              }
+          });
+        }
+        
+        // 设置超时计时器
+        let callTimer = setTimeout(function () {
+            if (!netcall.callAccepted) {
+                console.log('超时未接听, hangup');
+                hangup();
+            }
+        }, 1000 * 30);
+
+        //kwanAdd
+        function hangup() {
+            netcall.hangup();
+        }
+
+        //***********************************主叫发起通话请求-END************************************************
+
+        
+
+
+        //***********************************音视频清理-START********************************************** 
+        function AudioVideoClear() {
+            // 清除上层逻辑自己维护的各种状态
+            clear();
+
+            // 停止本地视频预览
+            netcall.stopLocalStream();
+
+            // 停止对端视频预览
+            netcall.stopRemoteStream();
+
+            // 停止设备麦克风
+            netcall.stopDevice(Netcall.DEVICE_TYPE_AUDIO_IN);
+
+            // 停止设备摄像头
+            netcall.stopDevice(Netcall.DEVICE_TYPE_VIDEO);
+
+            // 停止播放本地音频
+            netcall.stopDevice(Netcall.DEVICE_TYPE_AUDIO_OUT_LOCAL);
+
+            // 停止播放对端音频
+            netcall.stopDevice(Netcall.DEVICE_TYPE_AUDIO_OUT_CHAT);
+        }
+       
+        //***********************************音视频清理-END**********************************************
+    </script>
+
+</body>
+</html>

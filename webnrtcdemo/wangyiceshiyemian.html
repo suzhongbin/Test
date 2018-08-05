@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html>
+<head lang="en">
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=10,chrome=1">
+    <title>agent test</title>
+    <style>
+        div {
+            float: left;
+            margin: 100px ;
+            width: 200px;
+            height: 200px;
+            border: 1px solid red;
+            font-size: 20px;
+        }
+    </style>
+    <script type="text/javascript" src="jquery-1.11.3.min.js"></script>
+    <script type="text/javascript" src="NIM_Web_NIM_v5.2.1.js"></script>
+    <script type="text/javascript" src="NIM_Web_Chatroom_v5.2.1.js"></script>
+    <script type="text/javascript" src="NIM_Web_Netcall_v5.2.1.js"></script>
+    <script type="text/javascript" src="NIM_Web_SDK_v5.2.1.js"></script>
+	<script type="text/javascript" src="NIM_Web_WhiteBoard_v5.2.1.js"></script>
+    <script type="text/javascript" src="connection.js"></script>
+    <script type="text/javascript" src="video.js"></script>
+</head>
+<body>
+<div class="doctorVideo" id="AnyChatRemoteVideoDiv">远程视频位置</div>
+<div class="guestW" id="AnyChatLocalVideoDiv">本地视频位置</div>
+<button id="create">创建房间</button>
+<button id="join">加入房间</button>
+<button id="leave">离开房间</button>
+<button id="call">呼叫</button>
+<button id="answer">接听</button>
+<button id="hangup">挂断</button>
+<button id="update">更改分辨率</button>
+</body>
+</html>
+<script type="text/javascript">
+
+$("#call").on('click', function () {
+	  const pushConfig = {
+	  enable: true,
+	  needBadge: true,
+	  needPushNick: true,
+	  pushContent: '',
+	  custom: '测试自定义数据',
+	  pushPayload: '',
+	  sound: ''
+	};
+	const sessionConfig = {
+	  videoQuality: Netcall.CHAT_VIDEO_QUALITY_HIGH,
+	  videoFrameRate: Netcall.CHAT_VIDEO_FRAME_RATE_15,
+	  videoBitrate: 0,
+	  recordVideo: false,
+	  recordAudio: false,
+	  highAudio: false,
+	  bypassRtmp: false,
+	  rtmpUrl: '',
+	  rtmpRecord: false,
+	  splitMode: Netcall.LAYOUT_SPLITLATTICETILE
+	};
+	netcall
+	  .call({
+		type: Netcall.NETCALL_TYPE_VIDEO,
+		account: 'SSSS1111',
+		pushConfig: pushConfig,
+		sessionConfig: sessionConfig,
+		webrtcEnable: true
+	  })
+	  .then(function(obj) {
+		// 成功发起呼叫
+		console.log('call success', obj);
+	  })
+	  .catch(function(err) {
+		// 被叫不在线
+		if (err.code === 11001) {
+		  console.log('callee offline', err);
+		}
+	  });
+	// 设置超时计时器
+	let callTimer = setTimeout(function() {
+	  if (!netcall.callAccepted) {
+		console.log('超时未接听, hangup');
+		hangup();
+	  }
+	}, 1000 * 30);
+})
+
+///////////////////////////////创建音视频房间///////////////////////////////
+ $("#create").on('click', function () {
+    netcall.createChannel({
+	  channelName: 'testChannelName' //必填
+	  //custom: '测试自定义数据' 可选
+	  //webrtcEnable: true // 是否支持WebRTC方式接入，可选，默认为不开启
+	}).then(function(obj) {
+	  console.log('创建房间成功')
+	})
+})
+
+ $("#update").on('click', function () {
+    var videoQuality = Netcall.CHAT_VIDEO_QUALITY_LOW
+	netcall.setSessionVideoQuality(videoQuality)
+})
+
+ $("#join").on('click', function () {
+    const sessionConfig = {
+	  videoQuality: Netcall.CHAT_VIDEO_QUALITY_HIGH,
+	  videoFrameRate: Netcall.CHAT_VIDEO_FRAME_RATE_15,
+	  videoEncodeMode: Netcall.CHAT_VIDEO_ENCODEMODE_NORMAL,
+	  videoBitrate: 0,
+	  recordVideo: false,
+	  recordAudio: false,
+	  highAudio: false,
+	  bypassRtmp: false,
+	  rtmpUrl: '',
+	  rtmpRecord: false,
+	  splitMode: Netcall.LAYOUT_SPLITLATTICETILE
+	};
+	netcall
+	  .joinChannel({
+		channelName: 'testChannelName', //必填
+		type: Netcall.NETCALL_TYPE_VIDEO,
+		sessionConfig: sessionConfig
+	  })
+	  .then(function(obj) {
+		// 加入房间成功后的上层逻辑操作
+		console.log('加入房间成功', obj)
+		// eg: 开启摄像头
+		netcall
+		  .startDevice({
+			type: Netcall.DEVICE_TYPE_VIDEO,
+			width: 640,
+			height: 480
+		  })
+		  .then(function() {
+			// 通知对方自己开启了摄像头
+			netcall.control({
+			  command: Netcall.NETCALL_CONTROL_COMMAND_NOTIFY_VIDEO_ON
+			});
+		  })
+		  .catch(function(err) {
+			// 通知对方自己的摄像头不可用
+			netcall.control({
+			  command: Netcall.NETCALL_CONTROL_COMMAND_SELF_CAMERA_INVALID
+			});
+			console.log('启动摄像头失败');
+			console.error(err);
+		  });
+		// eg: 开启麦克风
+		netcall
+		  .startDevice({
+			type: Netcall.DEVICE_TYPE_AUDIO_IN
+		  })
+		  .then(function() {
+			// 通知对方自己开启了麦克风
+			netcall.control({
+			  command: Netcall.NETCALL_CONTROL_COMMAND_NOTIFY_AUDIO_ON
+			});
+		  })
+		  .catch(function(err) {
+			console.log('启动麦克风失败');
+			console.log(err);
+		  });
+		// eg: 开启本地流
+		var node1 = document.getElementById('AnyChatLocalVideoDiv')
+		netcall.startLocalStream(node1)
+		// eg: 设置音量采集、播放
+		netcall.setCaptureVolume(255);
+		netcall.setPlayVolume(255);
+		// eg: 设置视频画面尺寸等等，具体请参照p2p呼叫模式
+		netcall.setVideoViewSize({
+		  width: 500,
+		  height: 500,
+		  cut: false
+		});
+		netcall.on('joinChannel', function(obj) {
+		  console.log('user join', obj);
+		  // 播放对方声音
+		  netcall
+			.startDevice({
+			  type: Netcall.DEVICE_TYPE_AUDIO_OUT_CHAT
+			})
+			.catch(function(err) {
+			  console.log('播放对方的声音失败');
+			  console.error(err);
+			});
+		  // 预览对方视频画面
+		var node = document.getElementById('AnyChatRemoteVideoDiv')
+		var param = {
+			account: obj.account,
+			node: node,
+			poster: 'http://dev.netease.im/images/logo2.png'
+		}
+			// 开启远程视频预览
+		netcall.startRemoteStream(param).then(function(video){
+		console.log('xxx的视频标签', video)
+		})
+		  // 设置对方预览画面大小
+		  netcall.setVideoViewRemoteSize({
+			account: 'testAccount',
+			width: 500,
+			height: 500,
+			cut: true
+		  });
+		});
+		netcall.on('leaveChannel', function(obj) {
+		  // 通知上层有其他用户离开了会议，上层做相应逻辑和UI处理
+
+		  // 停止预览该同伴的视频流
+		  console.log('有人离开房间', obj)
+		  netcall.stopRemoteStream(obj.account);
+		});
+	  });
+})
+$("#leave").on('click', function () {
+    netcall.leaveChannel().then(function(obj) {
+		console.log('离开房间');
+		// 停止本地视频预览
+		netcall.stopLocalStream();
+
+		// 停止对端视频预览
+		netcall.stopRemoteStream();
+
+		// 停止设备麦克风
+		netcall.stopDevice(Netcall.DEVICE_TYPE_AUDIO_IN);
+
+		// 停止设备摄像头
+		netcall.stopDevice(Netcall.DEVICE_TYPE_VIDEO);
+
+		// 停止播放本地音频
+		netcall.stopDevice(Netcall.DEVICE_TYPE_AUDIO_OUT_LOCAL);
+
+		// 停止播放对端音频
+		netcall.stopDevice(Netcall.DEVICE_TYPE_AUDIO_OUT_CHAT);
+	});
+})
+// 是否被叫中
+let beCalling = false;
+// 呼叫类型
+let type = null;
+// 被叫信息
+let beCalledInfo = null;
+// 是否正忙
+let busy = false;
+// 开启监听
+netcall.on('beCalling', function(obj) {
+	  console.log('on beCalling', obj);
+	  const channelId = obj.channelId;
+	  // 被叫回应主叫自己已经收到了通话请求
+	  netcall.control({
+		channelId,
+		command: Netcall.NETCALL_CONTROL_COMMAND_START_NOTIFY_RECEIVED
+	  });
+	  // 只有在没有通话并且没有被叫的时候才记录被叫信息, 否则通知对方忙并拒绝通话
+	  if (!netcall.calling && !beCalling) {
+		type = obj.type;
+		beCalling = true;
+		beCalledInfo = obj;
+	  } else {
+		if (netcall.calling) {
+		  busy = netcall.notCurrentChannelId(obj);
+		} else if (beCalling) {
+		  busy = beCalledInfo.channelId !== channelId;
+		}
+		if (busy) {
+		  netcall.control({
+			channelId,
+			command: Netcall.NETCALL_CONTROL_COMMAND_BUSY
+		  });
+		  // 拒绝通话
+		  netcall.response({
+			accepted: false,
+			beCalledInfo: obj
+		  });
+		}
+	  }
+});
+
+netcall.on('callAccepted', function(obj) {
+	    console.log('on callAccepted', obj);
+	    // 取消呼叫倒计时
+	    //clearCallTimer();
+        //const promise;
+		//const netcall = this.netcall
+		// 开启麦克风
+		netcall.startDevice({
+		  type: Netcall.DEVICE_TYPE_AUDIO_IN
+		})
+		.then(function() {
+		  // 通知对方自己开启了麦克风
+		  netcall.control({
+			command: Netcall.NETCALL_CONTROL_COMMAND_NOTIFY_AUDIO_ON
+		  })
+		})
+		.catch(function(err) {
+		  console.log('启动麦克风失败')
+		  console.log(err)
+		})
+
+		// 开启摄像头
+		netcall.startDevice({
+		  type: Netcall.DEVICE_TYPE_VIDEO,
+		  width: 640,
+		  height: 480
+		})
+		.then(function() {
+		  // 通知对方自己开启了摄像头
+		  netcall.control({
+			command: Netcall.NETCALL_CONTROL_COMMAND_NOTIFY_VIDEO_ON
+		  })
+		})
+		.catch(function(err) {
+		  // 通知对方自己的摄像头不可用
+		  netcall.control({
+			command: Netcall.NETCALL_CONTROL_COMMAND_SELF_CAMERA_INVALID
+		  })
+		  console.log('启动摄像头失败')
+		  console.log(err)
+		})
+
+		// 开启本地视频预览
+		//var node1 = document.getElementById('AnyChatLocalVideoDiv')
+		netcall.startLocalStream();
+
+		// 开启远程视频预览
+		//var node2 = document.getElementById('AnyChatRemoteVideoDiv')
+		netcall.startRemoteStream();
+
+		// 开启本地音频播放
+		netcall.startDevice({
+		  type: Netcall.DEVICE_TYPE_AUDIO_OUT_CHAT
+		}).catch(function(err) {
+		  console.log('播放对方的声音失败')
+		  console.log(err)
+		})
+
+		// 设置本地音量采集大小, 该API可以在通话过程中动态调用调整自己的音量采集大小
+		netcall.setCaptureVolume(255)
+
+		// 设置本地音量播放大小, 该API可以在通话过程中动态调用调整自己的音量播放大小(即自己听对端的音量)
+		netcall.setPlayVolume(255)
+
+		// 设置本地视频画面大小
+		netcall.setVideoViewSize({
+		  width: 500,
+		  height: 500,
+		  cut: true
+		})
+
+		// 设置对端视频画面大小
+		netcall.setVideoViewRemoteSize({
+		  account: obj.account,
+		  width: 500,
+		  height: 500,
+		  cut: true
+		})
+});
+
+ $("#answer").on('click', function () {
+	const sessionConfig = {
+	videoQuality: Netcall.CHAT_VIDEO_QUALITY_HIGH,
+	videoFrameRate: Netcall.CHAT_VIDEO_FRAME_RATE_15,
+	videoBitrate: 0,
+	recordVideo: false,
+	recordAudio: false,
+	highAudio: false,
+	bypassRtmp: false,
+	rtmpUrl: '',
+	rtmpRecord: false,
+	splitMode: Netcall.LAYOUT_SPLITLATTICETILE
+	};
+    netcall
+        .response({
+            accepted: true,
+            beCalledInfo: beCalledInfo,
+            sessionConfig: sessionConfig
+        })
+        .catch(function(err) {
+            reject();
+            console.log('接听失败', err);
+        });
+})
+
+ $("#hangup").on('click', function () {
+    netcall.hangup();
+	// 清理工作
+    // 停止本地视频预览
+	netcall.stopLocalStream();
+
+	// 停止对端视频预览
+	netcall.stopRemoteStream();
+
+	// 停止设备麦克风
+	netcall.stopDevice(Netcall.DEVICE_TYPE_AUDIO_IN);
+
+	// 停止设备摄像头
+	netcall.stopDevice(Netcall.DEVICE_TYPE_VIDEO);
+
+	// 停止播放本地音频
+	netcall.stopDevice(Netcall.DEVICE_TYPE_AUDIO_OUT_LOCAL);
+
+	// 停止播放对端音频
+	netcall.stopDevice(Netcall.DEVICE_TYPE_AUDIO_OUT_CHAT);
+	// 是否被叫中
+	beCalling = false;
+	// 呼叫类型
+	type = null;
+	// 被叫信息
+	beCalledInfo = null;
+	// 是否正忙
+	busy = false;
+})
+netcall.on('hangup', function(obj) {
+  console.log('on hangup', obj);
+  // 判断需要挂断的通话是否是当前正在进行中的通话
+  if (!beCalledInfo || beCalledInfo.channelId === obj.channelId) {
+    // 清理工作
+    // 停止本地视频预览
+	netcall.stopLocalStream();
+
+	// 停止对端视频预览
+	netcall.stopRemoteStream();
+
+	// 停止设备麦克风
+	netcall.stopDevice(Netcall.DEVICE_TYPE_AUDIO_IN);
+
+	// 停止设备摄像头
+	netcall.stopDevice(Netcall.DEVICE_TYPE_VIDEO);
+
+	// 停止播放本地音频
+	netcall.stopDevice(Netcall.DEVICE_TYPE_AUDIO_OUT_LOCAL);
+
+	// 停止播放对端音频
+	netcall.stopDevice(Netcall.DEVICE_TYPE_AUDIO_OUT_CHAT);
+		// 是否被叫中
+	beCalling = false;
+	// 呼叫类型
+	type = null;
+	// 被叫信息
+	beCalledInfo = null;
+	// 是否正忙
+	busy = false;
+	  }
+});
+</script>
